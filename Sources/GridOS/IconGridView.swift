@@ -648,10 +648,12 @@ final class IconGridView: NSView {
 
         if animated {
             let transition = CATransition()
-            transition.duration = direction == 0 ? 0.16 : 0.30
+            transition.duration = direction == 0 ? 0.16 : PageAnimation.pushDuration
             transition.type = direction == 0 ? .fade : .push
             transition.subtype = direction > 0 ? .fromRight : .fromLeft
-            transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            transition.timingFunction = direction == 0
+                ? CAMediaTimingFunction(name: .easeInEaseOut)
+                : PageAnimation.timingFunction
             lastPageTransition = transition
             collectionView.layer?.add(transition, forKey: "page")
         }

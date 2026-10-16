@@ -83,3 +83,16 @@
 "relaunch.message" = "Изменения папок с приложениями вступят в силу после перезапуска GridOS.";
 "relaunch.now" = "Перезапустить";
 "relaunch.later" = "Позже";
+"settings.tab.general" = "Основные";
+"settings.tab.grid" = "Сетка";
+"settings.tab.activation" = "Запуск";
+"settings.tab.applications" = "Приложения";
+"settings.tab.about" = "О программе";
+"settings.dock" = "GridOS в Dock";
+"settings.dock.add" = "Добавить в Dock";
+"settings.grid.note" = "Новая сетка применится при следующем открытии GridOS.";
+"settings.spotlight-key" = "Клавиша Spotlight (F4) открывает GridOS";
+"settings.spotlight-key.note" = "Пока GridOS запущен, клавиша с лупой в верхнем ряду открывает GridOS вместо Spotlight. Spotlight по-прежнему открывается по ⌘Пробел.";
+"settings.trackpad-gesture.note" = "Если при щипке macOS открывает ещё и свой экран «Приложения», выключите его: Системные настройки › Трекпад › Другие жесты › Приложения.";
+"settings.about.version" = "Версия %@";
+"settings.about.credit" = "Бесплатно и с открытым кодом. Основано на Lunchpad от arichyx (лицензия MIT).";

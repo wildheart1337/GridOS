@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import DesktopStateKit
 import MultitouchKit
 
@@ -121,6 +122,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installStatusItem()
         installApplicationMenu()
         installHotCorner()
+        SpotlightKeyRemapper.apply(enabled: preferences.spotlightKeyOpensGridOS)
+        if shouldPresentOnLaunch() {
+            // Opened by the user (Dock, Finder, Spotlight): show the launcher right away.
+            DispatchQueue.main.async { [weak self] in
+                self?.showLunchpad()
+            }
+        }
         installGlobalHotKey()
         installMultitouchMonitor()
         installWorkspaceActivationObserver()
@@ -128,7 +136,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installScreenParametersObserver()
     }
 
+    /// A launch at login stays in the background; any launch the user makes shows the grid.
+    private func shouldPresentOnLaunch() -> Bool {
+        if let event = NSAppleEventManager.shared().currentAppleEvent,
+           let property = event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData)),
+           property.enumCodeValue == OSType(keyAELaunchedAsLogInItem) {
+            return false
+        }
+        // Login items registered through SMAppService do not always carry that marker, and they
+        // start shortly after the system does.
+        return ProcessInfo.processInfo.systemUptime > 180
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        SpotlightKeyRemapper.apply(enabled: false)
         catalogSynchronizer?.stop()
         gestureMonitorController?.stop()
         if let workspaceActivationObserver {
@@ -296,6 +317,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.gestureMonitorController?.lastErrorDescription
                 }
             )
+            settingsWindowController?.onAddGridOSToDock = { [weak self] in
+                self?.addToDock(url: Bundle.main.bundleURL, name: "GridOS")
+            }
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindowController?.show()
@@ -404,6 +428,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.scheduleGestureMonitorRestart()
+                if self?.preferences.spotlightKeyOpensGridOS == true {
+                    SpotlightKeyRemapper.apply(enabled: true)
+                }
             }
         }
     }
@@ -629,6 +656,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The launcher applies new dimensions the next time it is presented.
             window?.close()
             settingsWindowController?.refreshLocalizedContent()
+        case .spotlightKey:
+            SpotlightKeyRemapper.apply(enabled: preferences.spotlightKeyOpensGridOS)
+            settingsWindowController?.refreshLocalizedContent()
         case .hotCorner:
             hotCornerController?.setCorner(preferences.hotCorner)
             settingsWindowController?.refreshLocalizedContent()
@@ -689,7 +719,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferences.setApplication(app.identifier, hidden: true)
         case .addToDock:
             window?.close()
-            addToDock(app)
+            addToDock(url: app.url, name: app.name)
         case .uninstall:
             window?.close()
             confirmUninstall(app)
@@ -730,12 +760,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Appends the application to the Dock's persistent apps and restarts the Dock, which is how
     /// the Dock picks up changes to its preferences.
-    private func addToDock(_ app: AppItem) {
-        let path = app.url.path
+    private func addToDock(url: URL, name: String) {
+        let path = url.path
         let existing = UserDefaults(suiteName: "com.apple.dock")?.array(forKey: "persistent-apps")
         let existingDescription = existing.map { String(describing: $0) } ?? ""
-        if existingDescription.contains(path) || existingDescription.contains(app.url.absoluteString) {
-            Log.launch.notice("\(app.name) is already in the Dock")
+        if existingDescription.contains(path) || existingDescription.contains(url.absoluteString) {
+            Log.launch.notice("\(name) is already in the Dock")
             return
         }
 
@@ -764,7 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try process.run()
         } catch {
-            Log.launch.error("Could not add \(app.name) to the Dock: \(error)")
+            Log.launch.error("Could not add \(name) to the Dock: \(error)")
         }
     }
 

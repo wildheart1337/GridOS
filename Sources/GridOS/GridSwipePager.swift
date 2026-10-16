@@ -113,13 +113,15 @@ final class GridSwipePager {
         settleDirection = direction
         translation = 0
         let target: CGFloat = direction == 0 ? 0 : -CGFloat(direction) * pageUnit
-        let duration = direction == 0 ? 0.25 : 0.22
+        let duration = direction == 0
+            ? PageAnimation.settleBackDuration
+            : PageAnimation.settleDuration
 
         var settleFrame = contentView.frame
         settleFrame.origin.x = target
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.timingFunction = PageAnimation.timingFunction
             contentView.animator().frame = settleFrame
         }
 
@@ -321,5 +323,16 @@ enum GridItemLabel {
             height: ceil(metrics.labelFontSize * 1.34)
         ))
         return label
+    }
+}
+
+/// Shared page-turn timing. Slightly longer than the classic Launchpad values, with a soft
+/// decelerating curve so pages glide into place instead of stopping abruptly.
+enum PageAnimation {
+    static let settleDuration: TimeInterval = 0.30
+    static let settleBackDuration: TimeInterval = 0.32
+    static let pushDuration: TimeInterval = 0.40
+    static var timingFunction: CAMediaTimingFunction {
+        CAMediaTimingFunction(controlPoints: 0.22, 0.8, 0.28, 1.0)
     }
 }

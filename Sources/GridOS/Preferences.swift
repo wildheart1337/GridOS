@@ -58,7 +58,13 @@ enum GestureFingerCount: Int, CaseIterable {
 
 struct HotKeyConfiguration: Codable, Equatable {
     static let allowedModifiers = UInt32(cmdKey | optionKey | controlKey | shiftKey)
+    /// GridOS opens with F4 by default, the key Launchpad used on Mac keyboards.
     static let defaultConfiguration = HotKeyConfiguration(
+        keyCode: UInt32(kVK_F4),
+        modifiers: 0
+    )
+    /// The shortcut earlier builds used by default; migrated to F4 once.
+    static let previousDefaultConfiguration = HotKeyConfiguration(
         keyCode: UInt32(kVK_Space),
         modifiers: UInt32(controlKey | shiftKey)
     )
@@ -189,6 +195,7 @@ enum LunchpadPreferenceChange: Equatable {
     case gestureEnabled
     case gestureFingerCount
     case gridDimensions
+    case spotlightKey
     case hotCorner
     case appCustomizations
     case applicationSources
@@ -220,6 +227,8 @@ final class LunchpadPreferences {
         // Keep the existing storage key so upgrades preserve the user's enabled state.
         static let gestureEnabled = "fourFingerPinchEnabled"
         static let gestureFingerCount = "gestureFingerCount"
+        static let hotKeyMigratedToF4 = "hotKeyMigratedToF4"
+        static let spotlightKeyOpensGridOS = "spotlightKeyOpensGridOS"
         static let gridColumns = "gridColumns"
         static let gridRows = "gridRows"
         static let hotCorner = "hotCorner"
@@ -332,6 +341,19 @@ final class LunchpadPreferences {
         }
     }
 
+    /// Whether the keyboard's Spotlight key (F4 on Apple keyboards) opens GridOS.
+    var spotlightKeyOpensGridOS: Bool {
+        get {
+            guard defaults.object(forKey: Key.spotlightKeyOpensGridOS) != nil else { return true }
+            return defaults.bool(forKey: Key.spotlightKeyOpensGridOS)
+        }
+        set {
+            guard newValue != spotlightKeyOpensGridOS else { return }
+            defaults.set(newValue, forKey: Key.spotlightKeyOpensGridOS)
+            onChange?(.spotlightKey)
+        }
+    }
+
     var hotCorner: HotCorner {
         get {
             guard let value = defaults.string(forKey: Key.hotCorner),
@@ -417,6 +439,12 @@ final class LunchpadPreferences {
            payload.version == 1 {
             if !payload.enabled { return .disabled }
             if let configuration = payload.configuration, configuration.isValid {
+                if configuration == HotKeyConfiguration.previousDefaultConfiguration,
+                   !defaults.bool(forKey: Key.hotKeyMigratedToF4) {
+                    defaults.set(true, forKey: Key.hotKeyMigratedToF4)
+                    storeHotKey(.configured(.defaultConfiguration))
+                    return .configured(.defaultConfiguration)
+                }
                 return .configured(configuration)
             }
             return .configured(.defaultConfiguration)

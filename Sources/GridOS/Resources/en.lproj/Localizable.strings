@@ -83,3 +83,16 @@
 "settings.app-folders.none" = "Only the standard Applications folders are scanned.";
 "settings.app-folders.choose" = "Add";
 "settings.language.russian" = "Russian";
+"settings.tab.general" = "General";
+"settings.tab.grid" = "Grid";
+"settings.tab.activation" = "Activation";
+"settings.tab.applications" = "Apps";
+"settings.tab.about" = "About";
+"settings.dock" = "GridOS in the Dock";
+"settings.dock.add" = "Add to Dock";
+"settings.grid.note" = "The new grid is used the next time GridOS opens.";
+"settings.spotlight-key" = "Spotlight Key (F4) Opens GridOS";
+"settings.spotlight-key.note" = "The magnifier key on the top row opens GridOS instead of Spotlight while GridOS is running. Spotlight stays available with ⌘Space.";
+"settings.trackpad-gesture.note" = "If macOS also opens its own Apps view on the pinch, turn off System Settings › Trackpad › More Gestures › Apps.";
+"settings.about.version" = "Version %@";
+"settings.about.credit" = "Free and open source. Based on Lunchpad by arichyx (MIT License).";
