@@ -5,7 +5,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 project_root="$(cd "$script_dir/.." && pwd)"
 
-app_name="Lunchpad"
+app_name="GridOS"
 version="${VERSION:-0.1.0}"
 version_pattern='^([0-9]+\.[0-9]+\.[0-9]+)(-([0-9A-Za-z-]+\.)*[0-9A-Za-z-]+)?$'
 if [[ ! "$version" =~ $version_pattern ]]; then
@@ -20,7 +20,7 @@ app_bundle="$output_dir/$app_name.app"
 zip_path="$output_dir/$archive_base.zip"
 dmg_path="$output_dir/$archive_base.dmg"
 checksum_path="$output_dir/SHA256SUMS.txt"
-resource_bundle_name="Lunchpad_Lunchpad.bundle"
+resource_bundle_name="GridOS_GridOS.bundle"
 
 verify_localizations() {
     local bundle="$1/Contents/Resources/$resource_bundle_name"
@@ -66,7 +66,7 @@ hdiutil verify "$dmg_path"
 )
 
 zip_root="$(mktemp -d "${TMPDIR:-/tmp}/lunchpad-zip-verify.XXXXXX")"
-mount_point="$(mktemp -d "${TMPDIR:-/tmp}/lunchpad-dmg-verify.XXXXXX")"
+mount_point="$(mktemp -d "${TMPDIR:-/tmp}/gridos-dmg-verify.XXXXXX")"
 mounted=false
 cleanup() {
     if [[ "$mounted" == true ]]; then

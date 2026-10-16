@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "Lunchpad",
+    name: "GridOS",
     defaultLocalization: "en",
     platforms: [
         .macOS("26.0")
     ],
     targets: [
         .executableTarget(
-            name: "Lunchpad",
+            name: "GridOS",
             dependencies: ["MultitouchKit", "ApplicationMonitorKit", "DesktopStateKit"],
-            path: "Sources/Lunchpad",
+            path: "Sources/GridOS",
             resources: [.process("Resources")]
         ),
         .executableTarget(
@@ -53,8 +53,8 @@ let package = Package(
             dependencies: ["DesktopStateKit"]
         ),
         .testTarget(
-            name: "LunchpadTests",
-            dependencies: ["Lunchpad"]
+            name: "GridOSTests",
+            dependencies: ["GridOS"]
         )
     ],
     swiftLanguageModes: [.v6]

@@ -1,198 +1,52 @@
-# Lunchpad
+# GridOS
 
-Lunchpad brings the classic full-screen macOS app launcher back to macOS 26 Tahoe.
+Полноэкранный лаунчер приложений для macOS 26 и новее, замена Launchpad. Без подписок и аккаунтов, всё хранится только на вашем Mac.
 
-It is built with AppKit and follows the familiar Launchpad experience: open it with a
-three- or four-finger pinch, browse apps page by page, search by name, open logical folders, and launch an
-app with one click. The name is intentional: Lunchpad is to Launchpad what `reqwest` is to
-`request`.
+![GridOS](Assets/AppIcon.png)
 
-![Lunchpad showing the full-screen paged application grid](preview.png)
+## Что умеет
 
-## Highlights
+- Полноэкранная сетка приложений в стиле классического Launchpad, перелистывание страниц свайпом двумя пальцами.
+- Открывается **щипком четырьмя (или тремя) пальцами**, **горячей клавишей** (по умолчанию ⌃⇧Space; можно назначить любое сочетание или одиночную клавишу F1–F20), **активным углом экрана** или кликом по значку в строке меню.
+- Поиск по названию, навигация стрелками и Enter.
+- Перетаскивание иконок, создание папок (перетащите одно приложение на другое), переименование и удаление папок.
+- **Правый клик по приложению:** открыть, показать в Finder, переименовать, скрыть из GridOS, добавить в Dock, удалить в Корзину вместе с настройками и кэшами.
+- **Своя сетка:** от 4 до 12 столбцов и от 3 до 9 строк.
+- Скрытые приложения и свои названия можно вернуть одной кнопкой в настройках.
+- **Дополнительные папки с приложениями** помимо стандартных «Программ».
+- Сортировка по названию, дате создания, дате изменения или вручную.
+- Интерфейс на русском, английском и китайском языках.
 
-- Native full-screen AppKit interface
-- Configurable three- or four-finger pinch activation and spread-to-dismiss
-- Paged app grid with two-finger horizontal swiping and pointer drag paging
-- Search using localized application names and nonlocalized bundle names
-- Logical folders, including the default Other folder
-- Drag icons to rearrange, drop one app on another to create a folder, or drop it on a folder
-  or the folder title to move apps between the root and folders
-- Automatic updates when apps are installed, removed, or replaced
-- Layout that adapts to the Dock on any screen edge and to smaller or scaled displays
-- Menu bar icon and configurable global hot key
-- Native settings in English and Simplified Chinese
-- No cloud service, account, or network connection required
+## Установка
 
-## Requirements
+### Вариант 1: готовый `.dmg` (через GitHub)
 
-- macOS 26.0 or later
-- Apple Silicon
-- Swift 6 and the Xcode command-line tools when building from source
+Каждый раз, когда в ветку `main` попадают изменения, GitHub сам собирает приложение. Скачайте `GridOS-….dmg` на странице **Releases → latest**, откройте его и перетащите GridOS в «Программы».
 
-The direct trackpad input path has currently been verified with a built-in Force Touch trackpad.
+При первом запуске macOS предупредит, что разработчик не подтверждён (приложение подписано без платного аккаунта Apple). Чтобы открыть:
+**Системные настройки → Конфиденциальность и безопасность →** внизу «GridOS заблокирован…» → **«Всё равно открыть»**.
 
-## Build and install
+### Вариант 2: собрать у себя
 
-Download the latest DMG from
-[GitHub Releases](https://github.com/arichyx/lunchpad/releases), open it, and drag Lunchpad to the
-Applications folder.
+1. Скачайте проект (зелёная кнопка **Code → Download ZIP**) и распакуйте.
+2. Дважды кликните по файлу **`Собрать GridOS.command`**.
+   - Если macOS не даёт открыть файл: правый клик → «Открыть».
+   - В первый раз macOS предложит установить «инструменты командной строки» (это не Xcode, около 1–2 ГБ). Установите их и снова запустите файл.
+3. Через пару минут GridOS окажется в «Программах» и запустится сам.
 
-Build a release app bundle from source with:
+## Настройка
 
-```bash
-cd /absolute/path/to/lunchpad
-./Scripts/package-app.sh
-```
+Кликните по значку сетки в строке меню правой кнопкой и выберите **«Настройки…»**. Там можно:
 
-The script creates:
+- задать горячую клавишу и активный угол;
+- включить жест и выбрать три или четыре пальца;
+- задать количество столбцов и строк;
+- включить «Открывать при входе»;
+- вернуть скрытые приложения и сбросить свои названия;
+- добавить свои папки с приложениями.
 
-```text
-dist/Lunchpad.app
-dist/Lunchpad-0.1.0-macos-arm64.dmg
-dist/Lunchpad-0.1.0-macos-arm64.zip
-dist/SHA256SUMS.txt
-```
+> Если для активного угла уже назначено системное действие (Системные настройки → Рабочий стол и Dock → Активные углы), выберите в GridOS другой угол.
 
-Verify the complete package with:
+## Лицензия
 
-```bash
-VERSION=0.1.0 ./Scripts/verify-package.sh
-```
-
-Lunchpad uses an ad-hoc signature because the project does not require an Apple Developer
-account. A copy downloaded from the internet may need to be approved once in
-**System Settings → Privacy & Security** before it can open.
-
-## Using Lunchpad
-
-Lunchpad starts quietly in the menu bar and does not open the full-screen interface at launch.
-
-- Pinch inward with the configured three or four fingers to show Lunchpad.
-- Spread outward with the configured finger count (the reverse of the opening pinch) to close
-  Lunchpad while it is visible. The gesture is recognized only while Lunchpad is on screen.
-- In four-finger mode, when macOS is showing the desktop, an inward pinch restores the displaced
-  windows without opening Lunchpad, regardless of how Show Desktop was entered.
-- Alternatively, press Control-Shift-Space or left-click the menu bar icon. Every activation
-  opens Lunchpad on the display that contains the pointer.
-- Change pages with a two-finger horizontal swipe, a sideways drag on empty space, a mouse wheel,
-  or a page dot. Swipes and drags move the page with your fingers; release past a threshold (or
-  with a quick fling) to turn the page, and release early to snap back. The arrow keys move the
-  keyboard selection within the current page.
-- Type in the search field to find an app.
-- Click an app to close Lunchpad immediately and launch it.
-- Click a folder to browse its contents.
-- Drag an icon to rearrange it, drop it onto another app to create a folder, or drop it onto a
-  folder to add it. Inside a folder, drag an app onto the folder title to move it back to the
-  main page.
-- Click an open folder's title to rename it, or right-click a folder for Rename Folder and Delete
-  Folder. Deleting a folder puts its apps back where the folder was; the Other folder cannot be
-  renamed or deleted.
-- Press Escape or click empty space to leave a folder or close Lunchpad.
-- Right-click the menu bar icon for Show, Settings, and Quit actions.
-
-If macOS performs another action for the same four-finger gesture, select Three Fingers in
-Lunchpad Settings, disable Trackpad Gesture, or change the system gesture in System Settings.
-
-When using **Four Fingers**, we recommend turning off the system's **App / Apps** pinch gesture
-under **System Settings → Trackpad → More Gestures** (pinch the thumb and three fingers together).
-Otherwise, both Lunchpad and Spotlight's Apps view may open. This is separate from **Show Desktop**
-(spread the thumb and three fingers apart); leave Show Desktop enabled if you use it. If the system
-App / Apps switch cannot be turned off or does not retain its state, choose **Three Fingers** in
-Lunchpad instead.
-
-## Settings
-
-Open Settings from the menu bar icon or press Command-Comma while Lunchpad is active. Changes apply
-immediately and are stored locally.
-
-- **Language** changes Lunchpad's own interface between Follow System, English, and Simplified
-  Chinese. It does not change application names, which continue to follow macOS bundle localization.
-- **Application Order** keeps your manual arrangement or sorts apps by name, by the app bundle's
-  filesystem creation time, or by its modification time. Both time modes are newest-first; creation
-  time is not guaranteed to be the installation or release date. Folder positions and stored
-  logical layout positions are preserved when the mode changes, and dragging an icon switches to
-  Manual.
-- **Keyboard Shortcut** records a modified key or function key. Use Clear to disable the global hot
-  key. Lunchpad keeps the previous shortcut when Carbon reports a registration conflict. macOS does
-  not provide a complete public registry of every application-level or system shortcut, so a
-  successfully registered combination can still overlap behavior handled above Carbon.
-- **Launch at Login** uses the macOS login-item service and is available in the packaged app. If
-  macOS asks for approval, Settings explains this and opens System Settings → General → Login Items.
-- **Trackpad Gesture** can stop or restart the existing trackpad monitor without restarting
-  Lunchpad. **Gesture Fingers** selects strict three-finger recognition or four-finger recognition;
-  changing it restarts the monitor immediately. Three-finger mode rejects a contact sequence that
-  reaches four fingers so it does not claim macOS's four-finger system gestures. Four Fingers is
-  the default and preserves the Show Desktop restoration behavior.
-
-The default shortcut is Control-Shift-Space. For development and hardware testing,
-`LUNCHPAD_HOTKEY` can override the stored setting for one process:
-
-```bash
-LUNCHPAD_HOTKEY=control-option-l .build/debug/Lunchpad
-LUNCHPAD_HOTKEY=disabled .build/debug/Lunchpad
-```
-
-Recognized override values are `control-shift-space`, `control-option-l`, and `disabled`. While an
-override is active, Settings displays it as externally managed and disables shortcut editing.
-
-## Local data
-
-Lunchpad stores page order and logical folder assignments locally at:
-
-```text
-~/Library/Application Support/com.arichyx.Lunchpad/layout.sqlite3
-```
-
-Logical folders do not move or modify real `.app` bundles. Removing a logical folder only returns
-its apps to the root level.
-
-If the layout database cannot be opened, or was written by a newer Lunchpad version, Lunchpad
-falls back to a flat catalog and keeps launching and searching usable; drag arrangement and folder
-editing are disabled until persistent layout storage is available. A newer database is left
-untouched.
-
-## Development
-
-Lunchpad is a Swift Package Manager project and does not require an Xcode project.
-
-```bash
-swift build --package-path /absolute/path/to/lunchpad
-swift test --package-path /absolute/path/to/lunchpad
-/absolute/path/to/lunchpad/.build/debug/Lunchpad
-```
-
-Rebuild the debug binary and relaunch it in one step with the development helper. Pass `-f` to
-keep it attached to the terminal for live logs:
-
-```bash
-./Scripts/dev-run.sh
-```
-
-Diagnostics go to the unified log (and are echoed to the terminal when standard output is one).
-To follow a packaged or background instance:
-
-```bash
-log stream --level info --predicate 'subsystem == "com.arichyx.Lunchpad"'
-```
-
-Set `LUNCHPAD_GESTURE_DEBUG=1` to print per-frame trackpad diagnostics.
-
-The trackpad connection and report format are documented in
-[`Docs/IOKitMultitouch.md`](Docs/IOKitMultitouch.md). The app bundle is assembled by
-[`Scripts/package-app.sh`](Scripts/package-app.sh).
-
-Release tags, branches, and GitHub Release automation are documented in
-[`Docs/RELEASING.md`](Docs/RELEASING.md).
-
-## Known limitations
-
-- External Magic Trackpads may use report formats that are not handled yet. When a built-in
-  trackpad is present, Lunchpad always monitors it.
-- Dragging folders onto other folders is not implemented yet.
-- Ad-hoc builds cannot be notarized and may require manual approval after download.
-- Confirm that `Assets/AppIcon.png` is licensed for redistribution before publishing binaries.
-
-## License
-
-Lunchpad is available under the [MIT License](LICENSE).
+MIT. GridOS основан на открытом проекте [Lunchpad](https://github.com/arichyx/lunchpad) (© 2026 arichyx, лицензия MIT). Исходное уведомление об авторских правах сохранено в файле `LICENSE`.

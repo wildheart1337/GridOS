@@ -5,8 +5,8 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 project_root="$(cd "$script_dir/.." && pwd)"
 
-app_name="Lunchpad"
-executable_name="Lunchpad"
+app_name="GridOS"
+executable_name="GridOS"
 configuration="${CONFIGURATION:-release}"
 version="${VERSION:-0.1.0}"
 build_number="${BUILD_NUMBER:-1}"
@@ -31,7 +31,7 @@ if [[ ! "$build_number" =~ ^[0-9]+$ ]]; then
 fi
 
 if [[ "$target_arch" != "arm64" ]]; then
-    echo "Lunchpad currently supports arm64 release builds only: $target_arch" >&2
+    echo "GridOS currently supports arm64 release builds only: $target_arch" >&2
     exit 1
 fi
 
@@ -49,7 +49,7 @@ bin_dir="$(
         --show-bin-path
 )"
 executable_path="$bin_dir/$executable_name"
-resource_bundle_name="Lunchpad_Lunchpad.bundle"
+resource_bundle_name="GridOS_GridOS.bundle"
 resource_bundle_path="$bin_dir/$resource_bundle_name"
 resource_root="$resource_bundle_path"
 if [[ -d "$resource_bundle_path/Contents/Resources" ]]; then
@@ -115,7 +115,7 @@ ditto \
     "$app_bundle" \
     "$zip_path"
 
-dmg_root="$(mktemp -d "${TMPDIR:-/tmp}/lunchpad-dmg.XXXXXX")"
+dmg_root="$(mktemp -d "${TMPDIR:-/tmp}/gridos-dmg.XXXXXX")"
 cleanup() {
     rm -rf "$dmg_root"
 }
