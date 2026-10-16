@@ -150,6 +150,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Opening GridOS again from Finder, Spotlight, or the Dock while it is already running shows
+    /// the launcher, so a double-click never appears to do nothing.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showLunchpad()
+        return false
+    }
+
     private func installGlobalHotKey() {
         let controller = HotKeyController { [weak self] in
             Task { @MainActor [weak self] in
