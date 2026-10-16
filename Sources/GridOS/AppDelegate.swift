@@ -118,6 +118,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window?.onAppAction = { [weak self] action, app in
             self?.handleAppAction(action, app: app)
         }
+        window?.onMoveApp = { [weak self] app, destination in
+            self?.moveApplication(app, to: destination)
+        }
+        window?.backgroundMenuProvider = { [weak self] in
+            self?.makeLauncherMenu()
+        }
+        window?.backdropConfiguration = currentBackdropConfiguration()
 
         installStatusItem()
         installApplicationMenu()
@@ -174,7 +181,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Opening GridOS again from Finder, Spotlight, or the Dock while it is already running shows
     /// the launcher, so a double-click never appears to do nothing.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showLunchpad()
+        // A second click on the Dock icon closes the launcher again.
+        toggleLunchpad()
         return false
     }
 
@@ -214,6 +222,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func installStatusItem() {
+        guard preferences.showMenuBarIcon else {
+            if let statusItem {
+                NSStatusBar.system.removeStatusItem(statusItem)
+            }
+            statusItem = nil
+            rebuildStatusMenu()
+            return
+        }
         if statusItem == nil {
             statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         }
@@ -656,6 +672,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The launcher applies new dimensions the next time it is presented.
             window?.close()
             settingsWindowController?.refreshLocalizedContent()
+        case .background:
+            window?.backdropConfiguration = currentBackdropConfiguration()
+            settingsWindowController?.refreshLocalizedContent()
+        case .menuBarIcon:
+            installStatusItem()
+            settingsWindowController?.refreshLocalizedContent()
         case .spotlightKey:
             SpotlightKeyRemapper.apply(enabled: preferences.spotlightKeyOpensGridOS)
             settingsWindowController?.refreshLocalizedContent()
@@ -694,8 +716,114 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ),
             order: preferences.applicationSortOrder,
             locale: localizer.resolvedLanguage.locale,
-            otherFolderName: localizer.string("folder.other")
+            otherFolderName: localizer.string("folder.other"),
+            reversed: preferences.applicationSortReversed
         )
+    }
+
+    private func currentBackdropConfiguration() -> BackdropConfiguration {
+        BackdropConfiguration(
+            style: preferences.backgroundStyle,
+            blurWallpaper: preferences.blurWallpaper,
+            glassIntensity: preferences.glassIntensity
+        )
+    }
+
+    // MARK: Launcher menu
+
+    /// The menu for empty space in the grid and for the search field's "…" button.
+    private func makeLauncherMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        let settingsItem = NSMenuItem(
+            title: localizer.string("menu.settings"),
+            action: #selector(showSettings(_:)),
+            keyEquivalent: ","
+        )
+        settingsItem.target = self
+        settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
+        menu.addItem(settingsItem)
+        menu.addItem(.separator())
+
+        menu.addItem(NSMenuItem.sectionHeader(title: localizer.string("menu.sort-by")))
+        let order = preferences.applicationSortOrder
+        let reversed = preferences.applicationSortReversed
+
+        let manualItem = sortMenuItem(
+            localizer.string("settings.application-order.manual"),
+            order: .manual,
+            reversed: false
+        )
+        manualItem.state = order == .manual ? .on : .off
+        manualItem.image = NSImage(systemSymbolName: "hand.draw", accessibilityDescription: nil)
+        menu.addItem(manualItem)
+
+        let groups: [(ApplicationSortOrder, String, String, String, String)] = [
+            (.name, "settings.application-order.name", "textformat",
+             "menu.sort.a-z", "menu.sort.z-a"),
+            (.creationDate, "settings.application-order.creation-date", "calendar.badge.plus",
+             "menu.sort.newest", "menu.sort.oldest"),
+            (.lastOpened, "settings.application-order.last-opened", "clock",
+             "menu.sort.recent", "menu.sort.least-recent"),
+        ]
+        for (groupOrder, titleKey, symbol, naturalKey, reversedKey) in groups {
+            let parent = NSMenuItem(title: localizer.string(titleKey), action: nil, keyEquivalent: "")
+            parent.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            parent.state = order == groupOrder ? .on : .off
+            let submenu = NSMenu()
+            let natural = sortMenuItem(localizer.string(naturalKey), order: groupOrder, reversed: false)
+            natural.state = order == groupOrder && !reversed ? .on : .off
+            let flipped = sortMenuItem(localizer.string(reversedKey), order: groupOrder, reversed: true)
+            flipped.state = order == groupOrder && reversed ? .on : .off
+            submenu.addItem(natural)
+            submenu.addItem(flipped)
+            parent.submenu = submenu
+            menu.addItem(parent)
+        }
+
+        menu.addItem(.separator())
+        let quitItem = NSMenuItem(
+            title: localizer.string("menu.quit"),
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+        quitItem.target = NSApp
+        quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
+        menu.addItem(quitItem)
+        return menu
+    }
+
+    private func sortMenuItem(
+        _ title: String,
+        order: ApplicationSortOrder,
+        reversed: Bool
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(sortSelected(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = "\(order.rawValue)|\(reversed ? 1 : 0)"
+        return item
+    }
+
+    @objc private func sortSelected(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? String else { return }
+        let parts = value.split(separator: "|").map(String.init)
+        guard parts.count == 2, let order = ApplicationSortOrder(rawValue: parts[0]) else { return }
+        preferences.setApplicationSort(order, reversed: parts[1] == "1")
+    }
+
+    private func moveApplication(_ app: AppItem, to destination: AppMoveDestination) {
+        let newFolderName = localizer.string("folder.new")
+        applyLayoutEdit("Application move") { store in
+            switch destination {
+            case .root:
+                try store.moveApplication(identifier: app.identifier, toFolder: nil)
+            case .folder(let folderIdentifier):
+                try store.moveApplication(identifier: app.identifier, toFolder: folderIdentifier)
+            case .newFolder:
+                try store.createFolder(named: newFolderName, containing: app.identifier)
+            }
+        }
     }
 
     // MARK: Application commands
@@ -801,52 +929,145 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Per-user data an application leaves behind, keyed by its bundle identifier. Only
     /// locations that belong unambiguously to that bundle are included.
     private func leftoverFiles(for app: AppItem) -> [URL] {
-        guard let bundleIdentifier = app.bundleIdentifier,
-              !bundleIdentifier.isEmpty,
-              !bundleIdentifier.contains("/"),
-              let library = FileManager.default.urls(
-                  for: .libraryDirectory,
-                  in: .userDomainMask
-              ).first else {
+        guard let library = FileManager.default.urls(
+            for: .libraryDirectory,
+            in: .userDomainMask
+        ).first else {
             return []
         }
-        let candidates = [
-            "Application Support/\(bundleIdentifier)",
-            "Caches/\(bundleIdentifier)",
-            "HTTPStorages/\(bundleIdentifier)",
-            "WebKit/\(bundleIdentifier)",
-            "Logs/\(bundleIdentifier)",
-            "Preferences/\(bundleIdentifier).plist",
-            "Saved Application State/\(bundleIdentifier).savedState",
-        ]
+        var candidates: [String] = []
+        if let bundleIdentifier = app.bundleIdentifier,
+           !bundleIdentifier.isEmpty,
+           !bundleIdentifier.contains("/") {
+            candidates += [
+                "Application Support/\(bundleIdentifier)",
+                "Caches/\(bundleIdentifier)",
+                "HTTPStorages/\(bundleIdentifier)",
+                "HTTPStorages/\(bundleIdentifier).binarycookies",
+                "WebKit/\(bundleIdentifier)",
+                "Logs/\(bundleIdentifier)",
+                "Containers/\(bundleIdentifier)",
+                "Preferences/\(bundleIdentifier).plist",
+                "Saved Application State/\(bundleIdentifier).savedState",
+            ]
+        }
+        // Many applications also keep data under their own name.
+        let bundleName = app.url.deletingPathExtension().lastPathComponent
+        if !bundleName.isEmpty, !bundleName.contains("/"),
+           !["Apple", "Google", "Microsoft", "Adobe"].contains(bundleName) {
+            candidates += [
+                "Application Support/\(bundleName)",
+                "Caches/\(bundleName)",
+                "Logs/\(bundleName)",
+            ]
+        }
+        var seen = Set<String>()
         return candidates
             .map { library.appendingPathComponent($0) }
+            .filter { seen.insert($0.path).inserted }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
+    /// The disk space an item takes, including everything inside a directory.
+    private func allocatedSize(of url: URL) -> Int64 {
+        let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
+        func size(_ item: URL) -> Int64 {
+            guard let values = try? item.resourceValues(forKeys: keys) else { return 0 }
+            return Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return 0
+        }
+        guard isDirectory.boolValue else { return size(url) }
+        var total: Int64 = 0
+        if let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: Array(keys),
+            options: [],
+            errorHandler: nil
+        ) {
+            for case let item as URL in enumerator {
+                total += size(item)
+            }
+        }
+        return total
+    }
+
+    private func displayPath(_ url: URL) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path = url.path
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+    }
+
+    /// Shows every file that would be removed, each with a checkbox, like a clean uninstaller.
     private func confirmUninstall(_ app: AppItem) {
-        let leftovers = leftoverFiles(for: app)
+        let items = [app.url] + leftoverFiles(for: app)
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+
+        var checkboxes: [(URL, NSButton)] = []
+        let list = NSStackView()
+        list.orientation = .vertical
+        list.alignment = .leading
+        list.spacing = 6
+        var totalSize: Int64 = 0
+        for url in items {
+            let size = allocatedSize(of: url)
+            totalSize += size
+            let checkbox = NSButton(
+                checkboxWithTitle: "\(displayPath(url))   \(formatter.string(fromByteCount: size))",
+                target: nil,
+                action: nil
+            )
+            checkbox.state = .on
+            checkbox.font = .systemFont(ofSize: 11)
+            checkbox.lineBreakMode = .byTruncatingMiddle
+            checkbox.translatesAutoresizingMaskIntoConstraints = false
+            checkbox.widthAnchor.constraint(lessThanOrEqualToConstant: 420).isActive = true
+            list.addArrangedSubview(checkbox)
+            checkboxes.append((url, checkbox))
+        }
+        list.translatesAutoresizingMaskIntoConstraints = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 10))
+        container.addSubview(list)
+        NSLayoutConstraint.activate([
+            list.topAnchor.constraint(equalTo: container.topAnchor),
+            list.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            list.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+            list.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            container.widthAnchor.constraint(equalToConstant: 440),
+        ])
+        container.layoutSubtreeIfNeeded()
+        container.setFrameSize(NSSize(width: 440, height: list.fittingSize.height))
+
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.icon = NSWorkspace.shared.icon(forFile: app.url.path)
         alert.messageText = localizer.formatted("app.uninstall.title", app.name)
-        alert.informativeText = leftovers.isEmpty
-            ? localizer.string("app.uninstall.message")
-            : localizer.formatted("app.uninstall.message-with-data", String(leftovers.count))
+        alert.informativeText = localizer.formatted(
+            "app.uninstall.message-with-size",
+            formatter.string(fromByteCount: totalSize)
+        )
+        alert.accessoryView = container
         alert.addButton(withTitle: localizer.string("app.uninstall.confirm"))
         alert.addButton(withTitle: localizer.string("alert.cancel"))
         NSApp.activate()
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
+        let selected = checkboxes.filter { $0.1.state == .on }.map(\.0)
+        guard !selected.isEmpty else { return }
         let appURL = app.url
+        let removesApplication = selected.contains(appURL)
         Task { @MainActor [weak self] in
             var message = ""
             do {
-                _ = try await NSWorkspace.shared.recycle([appURL] + leftovers)
+                _ = try await NSWorkspace.shared.recycle(selected)
             } catch {
                 message = error.localizedDescription
             }
-            guard FileManager.default.fileExists(atPath: appURL.path) else { return }
+            guard removesApplication,
+                  FileManager.default.fileExists(atPath: appURL.path) else { return }
             // Bundles owned by the system (for example App Store apps) need an administrator
             // password, which Finder can ask for.
             self?.trashWithFinder(app, fallbackMessage: message)

@@ -9,9 +9,20 @@ private let lunchpadMenuBarCoverColor = NSColor(
     alpha: 1
 )
 
-/// The full-screen blurred backdrop. It stays below the Dock and ignores mouse input.
+/// How the backdrop is drawn; supplied by the app delegate from the user's settings.
+struct BackdropConfiguration: Equatable {
+    var style: BackgroundStyle = .wallpaper
+    var blurWallpaper = true
+    /// 0...1; the density of the glass tint.
+    var glassIntensity = 0.5
+}
+
+/// The full-screen backdrop: the blurred desktop picture or a frosted glass. It stays below the
+/// Dock and ignores mouse input.
 final class LunchpadBackdropWindow: NSWindow {
     let effectView = NSVisualEffectView()
+    private let wallpaperView = NSImageView()
+    private let tintView = NSView()
 
     init() {
         super.init(
@@ -21,7 +32,7 @@ final class LunchpadBackdropWindow: NSWindow {
             defer: false
         )
 
-        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 1)
+        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 2)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         backgroundColor = .clear
         isOpaque = false
@@ -35,6 +46,38 @@ final class LunchpadBackdropWindow: NSWindow {
         effectView.state = .active
         effectView.appearance = NSAppearance(named: .darkAqua)
         contentView = effectView
+
+        wallpaperView.imageScaling = .scaleAxesIndependently
+        wallpaperView.autoresizingMask = [.width, .height]
+        wallpaperView.isHidden = true
+        effectView.addSubview(wallpaperView)
+
+        tintView.wantsLayer = true
+        tintView.autoresizingMask = [.width, .height]
+        effectView.addSubview(tintView)
+    }
+
+    /// Applies the background style for the display about to be covered.
+    func apply(_ configuration: BackdropConfiguration, for screen: NSScreen) {
+        wallpaperView.frame = effectView.bounds
+        tintView.frame = effectView.bounds
+        switch configuration.style {
+        case .wallpaper:
+            if let image = WallpaperRenderer.image(for: screen, blurred: configuration.blurWallpaper) {
+                wallpaperView.image = image
+                wallpaperView.isHidden = false
+                tintView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.22).cgColor
+            } else {
+                // A live or unreadable wallpaper falls back to glass.
+                wallpaperView.isHidden = true
+                tintView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.3).cgColor
+            }
+        case .glass:
+            wallpaperView.isHidden = true
+            tintView.layer?.backgroundColor = NSColor.black
+                .withAlphaComponent(0.05 + 0.55 * configuration.glassIntensity)
+                .cgColor
+        }
     }
 
     override var canBecomeKey: Bool { false }
@@ -115,6 +158,10 @@ final class LunchpadWindow: NSWindow {
     private let backdropWindow = LunchpadBackdropWindow()
     private let menuBarGradientView = MenuBarGradientView()
     private let menuBarDockCornerWindow = MenuBarDockCornerWindow()
+    /// Covers the menu bar, which is drawn above the Dock level, while the launcher is open.
+    private let menuBarCoverWindow = MenuBarDockCornerWindow()
+    /// The background drawn behind the grid.
+    var backdropConfiguration = BackdropConfiguration()
     private let gridView: IconGridView
     private let rootPageStore: RootPageStore
     /// Delivered when the user completes a drag arrangement; the owner persists it.
@@ -127,6 +174,10 @@ final class LunchpadWindow: NSWindow {
     var onFolderDelete: ((String) -> Void)?
     /// Delivered when the user picks an application command from its context menu.
     var onAppAction: ((AppItemAction, AppItem) -> Void)?
+    /// Delivered when an application is moved into or out of a folder from its menu.
+    var onMoveApp: ((AppItem, AppMoveDestination) -> Void)?
+    /// Builds the launcher menu shown for empty space and the search field's "…" button.
+    var backgroundMenuProvider: (() -> NSMenu?)?
     private(set) var isAnimatingClose = false
     private var presentationGeneration = 0
     /// The display hosting the current presentation, used to follow display reconfigurations.
@@ -154,11 +205,13 @@ final class LunchpadWindow: NSWindow {
 
         // One continuous window covers both the application area and menu bar to avoid a seam.
         // It does not enter the Dock region, so the Dock remains visible and interactive.
-        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 1)
+        // Like classic Launchpad, the grid sits just below the Dock, so the Dock and tools that
+        // float above it (such as Dock previews) stay visible and usable. A separate cover
+        // window hides the menu bar.
+        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 1)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
-        // The high-level window hosts interaction and icons; the backdrop is a separate
-        // full-screen window below the Dock.
+        // The backdrop is a separate full-screen window below this one.
         backgroundColor = .clear
         isOpaque = false
         ignoresMouseEvents = false
@@ -172,6 +225,8 @@ final class LunchpadWindow: NSWindow {
         // A fully transparent window is not a scroll hit target. One-percent black creates an
         // event surface without visible impact and prevents WindowServer from forwarding scrolls.
         rootView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.01).cgColor
+        // Clicks on the hidden menu bar must not open menus underneath the cover.
+        menuBarCoverWindow.ignoresMouseEvents = false
 
         menuBarGradientView.translatesAutoresizingMaskIntoConstraints = false
         gridView.translatesAutoresizingMaskIntoConstraints = false
@@ -199,6 +254,12 @@ final class LunchpadWindow: NSWindow {
         }
         gridView.onAppAction = { [weak self] action, app in
             self?.onAppAction?(action, app)
+        }
+        gridView.onMoveApp = { [weak self] app, destination in
+            self?.onMoveApp?(app, destination)
+        }
+        gridView.onBackgroundMenu = { [weak self] in
+            self?.backgroundMenuProvider?()
         }
         contentView = rootView
 
@@ -241,11 +302,15 @@ final class LunchpadWindow: NSWindow {
         alphaValue = 1
         backdropWindow.alphaValue = 0
         menuBarDockCornerWindow.alphaValue = 0
+        menuBarCoverWindow.alphaValue = 0
         menuBarGradientView.alphaValue = 0
         gridView.alphaValue = 0
         backdropWindow.orderFrontRegardless()
         if !menuBarDockCornerWindow.frame.isEmpty {
             menuBarDockCornerWindow.orderFrontRegardless()
+        }
+        if !menuBarCoverWindow.frame.isEmpty {
+            menuBarCoverWindow.orderFrontRegardless()
         }
         makeKeyAndOrderFront(nil)
         rootView.layoutSubtreeIfNeeded()
@@ -266,6 +331,7 @@ final class LunchpadWindow: NSWindow {
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 self.backdropWindow.animator().alphaValue = 1
                 self.menuBarDockCornerWindow.animator().alphaValue = 1
+                self.menuBarCoverWindow.animator().alphaValue = 1
                 self.menuBarGradientView.animator().alphaValue = 1
             }
 
@@ -328,6 +394,24 @@ final class LunchpadWindow: NSWindow {
         menuBarGradientHeightConstraint.constant = max(96, insets.top + 72)
         menuBarDockCornerWindow.gradientView.referenceHeight =
             menuBarGradientHeightConstraint.constant
+        menuBarCoverWindow.gradientView.referenceHeight =
+            menuBarGradientHeightConstraint.constant
+        let menuBarHeight = max(screen.safeAreaInsets.top, screen.frame.maxY - screen.visibleFrame.maxY)
+        if menuBarHeight > 0 {
+            menuBarCoverWindow.setFrame(
+                NSRect(
+                    x: screen.frame.minX,
+                    y: screen.frame.maxY - menuBarHeight,
+                    width: screen.frame.width,
+                    height: menuBarHeight
+                ),
+                display: true
+            )
+        } else {
+            menuBarCoverWindow.orderOut(nil)
+            menuBarCoverWindow.setFrame(.zero, display: false)
+        }
+        backdropWindow.apply(backdropConfiguration, for: screen)
         gridView.updateScreenInsets(
             insets,
             availableHeight: contentFrame.height,
@@ -370,6 +454,7 @@ final class LunchpadWindow: NSWindow {
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             backdropWindow.animator().alphaValue = 0
             menuBarDockCornerWindow.animator().alphaValue = 0
+            menuBarCoverWindow.animator().alphaValue = 0
             menuBarGradientView.animator().alphaValue = 0
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in
@@ -377,6 +462,8 @@ final class LunchpadWindow: NSWindow {
                 self.orderOut(nil)
                 self.backdropWindow.orderOut(nil)
                 self.menuBarDockCornerWindow.orderOut(nil)
+                self.menuBarCoverWindow.orderOut(nil)
+                self.menuBarCoverWindow.alphaValue = 1
                 self.backdropWindow.alphaValue = 1
                 self.menuBarDockCornerWindow.alphaValue = 1
                 self.menuBarGradientView.alphaValue = 1

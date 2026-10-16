@@ -1,3 +1,4 @@
+import CoreServices
 import Foundation
 
 /// A discovered application. Its identifier preserves layout identity independently of path.
@@ -8,6 +9,8 @@ struct AppItem {
     let url: URL
     let creationDate: Date?
     let modificationDate: Date?
+    /// When the user last opened the application, from Spotlight metadata.
+    let lastUsedDate: Date?
     /// Trimmed, case-insensitively deduplicated raw `CFBundleDisplayName` and `CFBundleName`
     /// values retained for in-memory search. The localized display name is never included here.
     let searchAliases: [String]
@@ -19,7 +22,8 @@ struct AppItem {
         url: URL,
         creationDate: Date?,
         modificationDate: Date?,
-        searchAliases: [String] = []
+        searchAliases: [String] = [],
+        lastUsedDate: Date? = nil
     ) {
         self.identifier = identifier
         self.bundleIdentifier = bundleIdentifier
@@ -28,6 +32,7 @@ struct AppItem {
         self.creationDate = creationDate
         self.modificationDate = modificationDate
         self.searchAliases = searchAliases
+        self.lastUsedDate = lastUsedDate
     }
 
     /// Returns true when the trimmed query is a case-insensitive substring of the displayed name
@@ -230,7 +235,8 @@ final class AppScanner {
             url: canonicalURL,
             creationDate: resourceValues?.creationDate,
             modificationDate: resourceValues?.contentModificationDate,
-            searchAliases: searchAliases
+            searchAliases: searchAliases,
+            lastUsedDate: Self.lastUsedDate(of: canonicalURL)
         )
     }
 
@@ -254,15 +260,18 @@ final class AppScanner {
         let metadata: [String: (
             creation: Date?,
             modification: Date?,
-            aliases: [String]
+            aliases: [String],
+            lastUsed: Date?
         )] = Dictionary(
-            uniqueKeysWithValues: sourceApps.map {
+            sourceApps.map {
                 ($0.identifier, (
                     creation: $0.creationDate,
                     modification: $0.modificationDate,
-                    aliases: $0.searchAliases
+                    aliases: $0.searchAliases,
+                    lastUsed: $0.lastUsedDate
                 ))
-            }
+            },
+            uniquingKeysWith: { first, _ in first }
         )
 
         func enriched(_ app: AppItem) -> AppItem {
@@ -274,7 +283,8 @@ final class AppScanner {
                 url: app.url,
                 creationDate: appMetadata?.creation,
                 modificationDate: appMetadata?.modification,
-                searchAliases: appMetadata?.aliases ?? []
+                searchAliases: appMetadata?.aliases ?? [],
+                lastUsedDate: appMetadata?.lastUsed
             )
         }
 
@@ -291,6 +301,14 @@ final class AppScanner {
                 ))
             }
         }
+    }
+
+    /// The Spotlight "last used" date. Nil when Spotlight has no record of the application.
+    private static func lastUsedDate(of url: URL) -> Date? {
+        guard let item = MDItemCreateWithURL(kCFAllocatorDefault, url as CFURL) else {
+            return nil
+        }
+        return MDItemCopyAttribute(item, kMDItemLastUsedDate) as? Date
     }
 
     private func localizedDisplayName(

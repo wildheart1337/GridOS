@@ -342,6 +342,56 @@ final class LunchpadLayoutStore: @unchecked Sendable {
         }
     }
 
+    /// Moves an application into a folder (appended at its end) or, with a nil folder, back to the
+    /// end of the root level. A user folder left empty by the move is deleted.
+    func moveApplication(identifier appIdentifier: String, toFolder folderIdentifier: String?) throws {
+        try withAccessLock {
+            try transaction {
+                try performMove(appIdentifier: appIdentifier, toFolder: folderIdentifier)
+            }
+        }
+    }
+
+    /// Creates a user folder containing one application and returns the folder's identifier.
+    @discardableResult
+    func createFolder(named name: String, containing appIdentifier: String) throws -> String {
+        try withAccessLock {
+            var folderIdentifier = ""
+            try transaction {
+                folderIdentifier = try createFolder(name: name)
+                try performMove(appIdentifier: appIdentifier, toFolder: folderIdentifier)
+            }
+            return folderIdentifier
+        }
+    }
+
+    /// The body of a move; callers provide the lock and the transaction.
+    private func performMove(appIdentifier: String, toFolder folderIdentifier: String?) throws {
+        guard let existing = try existingAssignment(for: appIdentifier) else {
+            throw LunchpadLayoutStoreError.applicationNotFound
+        }
+        guard existing.folderIdentifier != folderIdentifier else { return }
+        if let folderIdentifier,
+           try folderSystemFlag(identifier: folderIdentifier) == nil {
+            throw LunchpadLayoutStoreError.folderNotFound
+        }
+        let position: Int64
+        if folderIdentifier == nil {
+            position = try nextRootItemPosition()
+        } else {
+            position = try nextApplicationPosition(folderIdentifier: folderIdentifier)
+        }
+        try setAssignment(
+            appIdentifier: appIdentifier,
+            folderIdentifier: folderIdentifier,
+            position: position,
+            source: .user
+        )
+        if let sourceFolder = existing.folderIdentifier {
+            try deleteFolderIfEmptyUserFolder(sourceFolder)
+        }
+    }
+
     /// Assigns consecutive root positions in the given order.
     private func writeRootOrder(_ slots: [LunchpadRootSlot]) throws {
         for (index, slot) in slots.enumerated() {

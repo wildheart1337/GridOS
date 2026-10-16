@@ -5,7 +5,8 @@ enum ApplicationOrderingPolicy {
         to items: [LunchpadItem],
         order: ApplicationSortOrder,
         locale: Locale,
-        otherFolderName: String
+        otherFolderName: String,
+        reversed: Bool = false
     ) -> [LunchpadItem] {
         // The localized Other display name applies in every mode; only the app ordering differs.
         let preparedItems = items.map { item -> LunchpadItem in
@@ -17,7 +18,7 @@ enum ApplicationOrderingPolicy {
                     : folder.name,
                 apps: order == .manual
                     ? folder.apps
-                    : sorted(folder.apps, order: order, locale: locale),
+                    : sorted(folder.apps, order: order, locale: locale, reversed: reversed),
                 isSystem: folder.isSystem
             ))
         }
@@ -32,7 +33,8 @@ enum ApplicationOrderingPolicy {
                 return app
             },
             order: order,
-            locale: locale
+            locale: locale,
+            reversed: reversed
         ).makeIterator()
 
         return preparedItems.map { item in
@@ -41,7 +43,18 @@ enum ApplicationOrderingPolicy {
         }
     }
 
+    /// `reversed` flips the natural order: Z→A for names, oldest first for dates.
     static func sorted(
+        _ apps: [AppItem],
+        order: ApplicationSortOrder,
+        locale: Locale,
+        reversed: Bool = false
+    ) -> [AppItem] {
+        let result = naturallySorted(apps, order: order, locale: locale)
+        return reversed ? Array(result.reversed()) : result
+    }
+
+    private static func naturallySorted(
         _ apps: [AppItem],
         order: ApplicationSortOrder,
         locale: Locale
@@ -55,6 +68,8 @@ enum ApplicationOrderingPolicy {
                 dates = (lhs.creationDate, rhs.creationDate)
             case .modificationDate:
                 dates = (lhs.modificationDate, rhs.modificationDate)
+            case .lastOpened:
+                dates = (lhs.lastUsedDate, rhs.lastUsedDate)
             }
 
             if let dates {

@@ -25,6 +25,8 @@ final class LunchpadCollectionView: NSCollectionView {
     var onSwipeEnded: ((_ translation: CGFloat, _ velocity: CGFloat) -> Void)?
     /// Supplies a context menu for a secondary click on an item, or nil for none.
     var onContextMenu: ((IndexPath) -> NSMenu?)?
+    /// Supplies the menu for a secondary click on empty space.
+    var onBackgroundContextMenu: (() -> NSMenu?)?
 
     private enum DragState {
         case idle
@@ -150,7 +152,9 @@ final class LunchpadCollectionView: NSCollectionView {
         // An arrangement drag or swipe owns the pointer until it ends.
         guard dragState != .active, !swipeTracker.isActive else { return nil }
         let point = convert(event.locationInWindow, from: nil)
-        guard let indexPath = indexPathForItem(at: point) else { return nil }
+        guard let indexPath = indexPathForItem(at: point) else {
+            return onBackgroundContextMenu?()
+        }
         return onContextMenu?(indexPath)
     }
 

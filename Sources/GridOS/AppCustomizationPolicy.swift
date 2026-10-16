@@ -28,7 +28,8 @@ enum AppCustomizationPolicy {
                 url: app.url,
                 creationDate: app.creationDate,
                 modificationDate: app.modificationDate,
-                searchAliases: aliases
+                searchAliases: aliases,
+                lastUsedDate: app.lastUsedDate
             )
         }
 

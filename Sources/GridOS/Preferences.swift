@@ -40,6 +40,15 @@ enum ApplicationSortOrder: String, CaseIterable {
     case name
     case creationDate
     case modificationDate
+    case lastOpened
+}
+
+/// How the launcher's backdrop is drawn.
+enum BackgroundStyle: String, CaseIterable {
+    /// The desktop picture, optionally blurred, like classic Launchpad.
+    case wallpaper
+    /// A frosted glass over whatever is on screen.
+    case glass
 }
 
 /// A screen corner that opens GridOS when the pointer rests in it.
@@ -196,6 +205,8 @@ enum LunchpadPreferenceChange: Equatable {
     case gestureFingerCount
     case gridDimensions
     case spotlightKey
+    case background
+    case menuBarIcon
     case hotCorner
     case appCustomizations
     case applicationSources
@@ -229,6 +240,11 @@ final class LunchpadPreferences {
         static let gestureFingerCount = "gestureFingerCount"
         static let hotKeyMigratedToF4 = "hotKeyMigratedToF4"
         static let spotlightKeyOpensGridOS = "spotlightKeyOpensGridOS"
+        static let sortReversed = "applicationSortReversed"
+        static let backgroundStyle = "backgroundStyle"
+        static let blurWallpaper = "blurWallpaper"
+        static let glassIntensity = "glassIntensity"
+        static let showMenuBarIcon = "showMenuBarIcon"
         static let gridColumns = "gridColumns"
         static let gridRows = "gridRows"
         static let hotCorner = "hotCorner"
@@ -338,6 +354,79 @@ final class LunchpadPreferences {
             guard value != gridRows else { return }
             defaults.set(value, forKey: Key.gridRows)
             onChange?(.gridDimensions)
+        }
+    }
+
+    /// Reverses the automatic order: Z→A for names, oldest first for dates.
+    var applicationSortReversed: Bool {
+        get { defaults.bool(forKey: Key.sortReversed) }
+        set {
+            guard newValue != applicationSortReversed else { return }
+            defaults.set(newValue, forKey: Key.sortReversed)
+            onChange?(.applicationSortOrder)
+        }
+    }
+
+    /// Sets the order and its direction together, announcing a single change.
+    func setApplicationSort(_ order: ApplicationSortOrder, reversed: Bool) {
+        guard order != applicationSortOrder || reversed != applicationSortReversed else { return }
+        defaults.set(order.rawValue, forKey: Key.applicationSortOrder)
+        defaults.set(reversed, forKey: Key.sortReversed)
+        onChange?(.applicationSortOrder)
+    }
+
+    var backgroundStyle: BackgroundStyle {
+        get {
+            guard let value = defaults.string(forKey: Key.backgroundStyle),
+                  let style = BackgroundStyle(rawValue: value) else {
+                return .wallpaper
+            }
+            return style
+        }
+        set {
+            guard newValue != backgroundStyle else { return }
+            defaults.set(newValue.rawValue, forKey: Key.backgroundStyle)
+            onChange?(.background)
+        }
+    }
+
+    var blurWallpaper: Bool {
+        get {
+            guard defaults.object(forKey: Key.blurWallpaper) != nil else { return true }
+            return defaults.bool(forKey: Key.blurWallpaper)
+        }
+        set {
+            guard newValue != blurWallpaper else { return }
+            defaults.set(newValue, forKey: Key.blurWallpaper)
+            onChange?(.background)
+        }
+    }
+
+    /// How strongly the glass background tints the screen, from 0 (clear) to 1 (dense).
+    var glassIntensity: Double {
+        get {
+            guard let stored = defaults.object(forKey: Key.glassIntensity) as? NSNumber else {
+                return 0.5
+            }
+            return min(1, max(0, stored.doubleValue))
+        }
+        set {
+            let value = min(1, max(0, newValue))
+            guard abs(value - glassIntensity) > 0.001 else { return }
+            defaults.set(value, forKey: Key.glassIntensity)
+            onChange?(.background)
+        }
+    }
+
+    var showMenuBarIcon: Bool {
+        get {
+            guard defaults.object(forKey: Key.showMenuBarIcon) != nil else { return true }
+            return defaults.bool(forKey: Key.showMenuBarIcon)
+        }
+        set {
+            guard newValue != showMenuBarIcon else { return }
+            defaults.set(newValue, forKey: Key.showMenuBarIcon)
+            onChange?(.menuBarIcon)
         }
     }
 

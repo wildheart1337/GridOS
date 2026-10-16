@@ -26,6 +26,10 @@ final class IconGridView: NSView {
     var onFolderDelete: ((String) -> Void)?
     /// Delivered when the user picks an application command from its context menu.
     var onAppAction: ((AppItemAction, AppItem) -> Void)?
+    /// Delivered when the user moves an application into or out of a folder from its menu.
+    var onMoveApp: ((AppItem, AppMoveDestination) -> Void)?
+    /// Supplies the launcher menu (settings, sorting, quit) for empty space and the "…" button.
+    var onBackgroundMenu: (() -> NSMenu?)?
     /// Opens an application and reports the outcome on an arbitrary queue. Injectable so tests
     /// do not launch real applications.
     var applicationOpener: (URL, @escaping @Sendable (Error?) -> Void) -> Void = { url, completion in
@@ -43,6 +47,9 @@ final class IconGridView: NSView {
     private let pageIndicator = PageIndicatorView()
     private let emptyLabel = NSTextField(labelWithString: "")
     private let dragFeedbackView = GridDragFeedbackView()
+    /// The frosted panel an open folder's contents sit on.
+    private let folderPanel = NSVisualEffectView()
+    private let folderPanelBorder = NSView()
     private let gridLayout = LunchpadGridLayout(
         columns: Layout.columns,
         rows: Layout.rows,
@@ -259,6 +266,7 @@ final class IconGridView: NSView {
         searchField.stringValue = ""
         searchField.isHidden = false
         folderTitleLabel.isHidden = true
+        setFolderPanelVisible(false, animated: false)
         filteredItems = allItems
         currentPage = max(0, restoredRootPage)
         reloadPage(animated: false)
@@ -303,6 +311,7 @@ final class IconGridView: NSView {
                 currentPage = rootPageBeforeEnteringFolder
                 folderTitleLabel.isHidden = true
                 searchField.isHidden = false
+                setFolderPanelVisible(false, animated: animated)
             }
         } else {
             let query = searchField.stringValue.trimmingCharacters(
@@ -469,8 +478,11 @@ final class IconGridView: NSView {
         setupPageIndicator()
         setupEmptyLabel()
 
+        setupFolderPanel()
         addSubview(searchField)
         addSubview(folderTitleLabel)
+        addSubview(folderPanel)
+        addSubview(folderPanelBorder)
         addSubview(collectionView)
         addSubview(pageIndicator)
         addSubview(emptyLabel)
@@ -526,12 +538,81 @@ final class IconGridView: NSView {
                 equalToConstant: LunchpadGridMetrics.pageIndicatorHeight
             ),
 
+            folderPanel.leadingAnchor.constraint(equalTo: collectionView.leadingAnchor, constant: -28),
+            folderPanel.trailingAnchor.constraint(equalTo: collectionView.trailingAnchor, constant: 28),
+            folderPanel.topAnchor.constraint(equalTo: collectionView.topAnchor, constant: -20),
+            folderPanel.bottomAnchor.constraint(equalTo: collectionView.bottomAnchor, constant: 20),
+            folderPanelBorder.leadingAnchor.constraint(equalTo: folderPanel.leadingAnchor),
+            folderPanelBorder.trailingAnchor.constraint(equalTo: folderPanel.trailingAnchor),
+            folderPanelBorder.topAnchor.constraint(equalTo: folderPanel.topAnchor),
+            folderPanelBorder.bottomAnchor.constraint(equalTo: folderPanel.bottomAnchor),
+
             emptyLabel.centerXAnchor.constraint(equalTo: collectionView.centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: collectionView.centerYAnchor),
         ])
     }
 
+    private func setupFolderPanel() {
+        let radius: CGFloat = 28
+        folderPanel.material = .hudWindow
+        folderPanel.blendingMode = .behindWindow
+        folderPanel.state = .active
+        folderPanel.appearance = NSAppearance(named: .darkAqua)
+        folderPanel.maskImage = Self.roundedMask(radius: radius)
+        folderPanel.alphaValue = 0
+        folderPanel.translatesAutoresizingMaskIntoConstraints = false
+
+        folderPanelBorder.wantsLayer = true
+        folderPanelBorder.layer?.cornerRadius = radius
+        folderPanelBorder.layer?.cornerCurve = .continuous
+        folderPanelBorder.layer?.borderWidth = 1
+        folderPanelBorder.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        folderPanelBorder.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.04).cgColor
+        folderPanelBorder.alphaValue = 0
+        folderPanelBorder.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    /// A stretchable rounded-rectangle mask for visual-effect views.
+    private static func roundedMask(radius: CGFloat) -> NSImage {
+        let edge = radius * 2 + 1
+        let image = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+        image.resizingMode = .stretch
+        return image
+    }
+
+    private func setFolderPanelVisible(_ visible: Bool, animated: Bool) {
+        let alpha: CGFloat = visible ? 1 : 0
+        guard folderPanel.alphaValue != alpha || folderPanelBorder.alphaValue != alpha else { return }
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                folderPanel.animator().alphaValue = alpha
+                folderPanelBorder.animator().alphaValue = alpha
+            }
+        } else {
+            folderPanel.alphaValue = alpha
+            folderPanelBorder.alphaValue = alpha
+        }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        onBackgroundMenu?()
+    }
+
     private func setupSearchField() {
+        searchField.onMoreButton = { [weak self] button in
+            guard let menu = self?.onBackgroundMenu?() else { return }
+            menu.popUp(
+                positioning: nil,
+                at: NSPoint(x: 0, y: button.bounds.maxY + 4),
+                in: button
+            )
+        }
         searchField.onTextChange = { [weak self] query in
             self?.applySearch(query: query)
         }
@@ -588,6 +669,9 @@ final class IconGridView: NSView {
         }
         collectionView.onContextMenu = { [weak self] indexPath in
             self?.contextMenu(forItemAt: indexPath)
+        }
+        collectionView.onBackgroundContextMenu = { [weak self] in
+            self?.onBackgroundMenu?()
         }
         collectionView.onSwipePaging = { [weak self] in
             self?.swipePagingAllowed ?? false
@@ -752,6 +836,7 @@ final class IconGridView: NSView {
         folderTitleLabel.stringValue = folder.name
         folderTitleLabel.isRenamable = allowsDragArrangement && !folder.isSystem
         folderTitleLabel.isHidden = false
+        setFolderPanelVisible(true, animated: true)
         reloadPage(animated: true)
     }
 
@@ -766,6 +851,7 @@ final class IconGridView: NSView {
 
         folderTitleLabel.isHidden = true
         searchField.isHidden = false
+        setFolderPanelVisible(false, animated: animated)
         reloadPage(animated: animated)
     }
 
@@ -779,22 +865,32 @@ final class IconGridView: NSView {
         folderTitleLabel.commitEditing()
     }
 
-    /// Rename and Delete actions for a user folder on the root page. System folders, search
-    /// results, and the flat fallback layout offer no menu.
+    /// Open, Rename, and Ungroup for a folder on the root page. System folders offer only Open;
+    /// search results and the flat fallback layout offer no folder menu.
     func folderContextMenu(forItemAt indexPath: IndexPath) -> NSMenu? {
-        guard allowsDragArrangement, currentFolder == nil, !currentSearchQueryIsNonEmpty else {
+        guard currentFolder == nil, !currentSearchQueryIsNonEmpty else {
             return nil
         }
         let pageItems = itemsOnCurrentPage
         guard indexPath.item < pageItems.count,
               case .folder(let folder) = pageItems[
                   pageItems.index(pageItems.startIndex, offsetBy: indexPath.item)
-              ],
-              !folder.isSystem else {
+              ] else {
             return nil
         }
 
         let menu = NSMenu()
+        let openItem = NSMenuItem(
+            title: localizer.string("app.open"),
+            action: #selector(openFolderFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        openItem.target = self
+        openItem.representedObject = folder.identifier
+        menu.addItem(openItem)
+
+        guard allowsDragArrangement, !folder.isSystem else { return menu }
+
         let renameItem = NSMenuItem(
             title: localizer.string("folder.rename"),
             action: #selector(renameFolderFromMenu(_:)),
@@ -804,18 +900,18 @@ final class IconGridView: NSView {
         renameItem.representedObject = folder.identifier
         menu.addItem(renameItem)
 
-        let deleteItem = NSMenuItem(
-            title: localizer.string("folder.delete"),
+        let ungroupItem = NSMenuItem(
+            title: localizer.string("folder.ungroup"),
             action: #selector(deleteFolderFromMenu(_:)),
             keyEquivalent: ""
         )
-        deleteItem.target = self
-        deleteItem.representedObject = folder.identifier
-        menu.addItem(deleteItem)
+        ungroupItem.target = self
+        ungroupItem.representedObject = folder.identifier
+        menu.addItem(ungroupItem)
         return menu
     }
 
-    /// The menu for any grid item: folder commands for user folders, application commands for
+    /// The menu for any grid item: folder commands for folders, application commands for
     /// applications.
     func contextMenu(forItemAt indexPath: IndexPath) -> NSMenu? {
         if let folderMenu = folderContextMenu(forItemAt: indexPath) {
@@ -836,7 +932,7 @@ final class IconGridView: NSView {
         menu.autoenablesItems = false
         let isSystemApplication = app.url.path.hasPrefix("/System/")
 
-        func add(_ action: AppItemAction, _ key: String, enabled: Bool = true) {
+        func add(_ action: AppItemAction, _ key: String, symbol: String, enabled: Bool = true) {
             let item = NSMenuItem(
                 title: localizer.string(key),
                 action: #selector(applicationMenuItemSelected(_:)),
@@ -846,19 +942,69 @@ final class IconGridView: NSView {
             item.tag = action.rawValue
             item.representedObject = app.identifier
             item.isEnabled = enabled
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             menu.addItem(item)
         }
 
-        add(.open, "app.open")
-        add(.showInFinder, "app.show-in-finder")
+        add(.open, "app.open", symbol: "arrow.up.forward.app")
+        add(.showInFinder, "app.show-in-finder", symbol: "folder")
+        add(.addToDock, "app.add-to-dock", symbol: "dock.rectangle")
         menu.addItem(.separator())
-        add(.rename, "app.rename")
-        add(.hide, "app.hide")
+        if allowsDragArrangement {
+            let moveItem = NSMenuItem(title: localizer.string("app.move-to"), action: nil, keyEquivalent: "")
+            moveItem.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: nil)
+            moveItem.submenu = moveSubmenu(for: app)
+            menu.addItem(moveItem)
+        }
+        add(.hide, "app.hide", symbol: "eye.slash")
+        add(.rename, "app.rename", symbol: "pencil")
         menu.addItem(.separator())
-        add(.addToDock, "app.add-to-dock")
-        menu.addItem(.separator())
-        add(.uninstall, "app.uninstall", enabled: !isSystemApplication)
+        add(.uninstall, "app.uninstall", symbol: "trash", enabled: !isSystemApplication)
         return menu
+    }
+
+    private func moveSubmenu(for app: AppItem) -> NSMenu {
+        let submenu = NSMenu()
+
+        func add(_ title: String, _ destination: AppMoveDestination) {
+            let item = NSMenuItem(
+                title: title,
+                action: #selector(moveMenuItemSelected(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = AppMoveRequest(
+                appIdentifier: app.identifier,
+                destination: destination
+            )
+            submenu.addItem(item)
+        }
+
+        if currentFolder != nil {
+            add(localizer.string("app.remove-from-folder"), .root)
+            submenu.addItem(.separator())
+        }
+        let folders = allItems.compactMap { item -> AppFolder? in
+            guard case .folder(let folder) = item,
+                  folder.identifier != currentFolder?.identifier else { return nil }
+            return folder
+        }
+        for folder in folders {
+            add(folder.name, .folder(folder.identifier))
+        }
+        if !folders.isEmpty {
+            submenu.addItem(.separator())
+        }
+        add(localizer.string("folder.new"), .newFolder)
+        return submenu
+    }
+
+    @objc private func moveMenuItemSelected(_ sender: NSMenuItem) {
+        guard let request = sender.representedObject as? AppMoveRequest,
+              let app = allApps.first(where: { $0.identifier == request.appIdentifier }) else {
+            return
+        }
+        onMoveApp?(app, request.destination)
     }
 
     @objc private func applicationMenuItemSelected(_ sender: NSMenuItem) {
@@ -870,6 +1016,12 @@ final class IconGridView: NSView {
             return
         }
         onAppAction?(action, app)
+    }
+
+    @objc private func openFolderFromMenu(_ sender: NSMenuItem) {
+        guard let identifier = sender.representedObject as? String,
+              let folder = rootFolder(identifier: identifier) else { return }
+        enterFolder(folder)
     }
 
     @objc private func renameFolderFromMenu(_ sender: NSMenuItem) {
@@ -1198,6 +1350,17 @@ final class IconGridView: NSView {
     // MARK: Drop resolution
 
     private func resolveDropCandidate(point: NSPoint) -> GridDropCandidate {
+        // Dragging an application out of an open folder's panel returns it to the main grid,
+        // as in Launchpad. Sideways exits still turn pages while the folder has several.
+        if currentFolder != nil {
+            let panel = collectionView.bounds.insetBy(dx: -12, dy: -12)
+            let outsideVertically = point.y < panel.minY || point.y > panel.maxY
+            let outsideHorizontally = (point.x < panel.minX || point.x > panel.maxX) && pageCount <= 1
+            if outsideVertically || outsideHorizontally {
+                stickyMergeSlot = nil
+                return .removalTarget
+            }
+        }
         let draggedSlot: Int? = draggedContainerIndex.flatMap { index in
             let slot = index - pageStartIndex
             if (0..<Layout.pageCapacity).contains(slot) {

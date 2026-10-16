@@ -11,10 +11,14 @@ final class LunchpadSearchField: NSView, NSTextFieldDelegate {
     /// its normal caret behavior, which preserves left/right caret movement before any result has
     /// become active. The second callback parameter is `caretAtEndOfText` from the field editor.
     var onNavigateDirection: ((GridNavigationDirection, Bool) -> Bool)?
+    /// Shows the launcher menu (settings, sorting, quit) from the "…" button.
+    var onMoreButton: ((NSView) -> Void)?
 
     private let searchIcon = NSImageView()
     private let textField = NSTextField()
     private let clearButton = NSButton()
+    private let moreButton = NSButton()
+    private let glassView = NSVisualEffectView()
 
     var stringValue: String {
         get { textField.stringValue }
@@ -35,11 +39,30 @@ final class LunchpadSearchField: NSView, NSTextFieldDelegate {
         window?.makeFirstResponder(textField)
     }
 
+    override func layout() {
+        super.layout()
+        // A capsule, like the Liquid Glass search fields in macOS 26.
+        let radius = bounds.height / 2
+        layer?.cornerRadius = radius
+        glassView.frame = bounds
+        glassView.layer?.cornerRadius = radius
+    }
+
     private func setup() {
         wantsLayer = true
-        layer?.cornerRadius = 5
         layer?.cornerCurve = .continuous
         layer?.borderWidth = 1
+        layer?.masksToBounds = true
+
+        glassView.material = .hudWindow
+        glassView.blendingMode = .behindWindow
+        glassView.state = .active
+        glassView.appearance = NSAppearance(named: .darkAqua)
+        glassView.wantsLayer = true
+        glassView.layer?.cornerCurve = .continuous
+        glassView.layer?.masksToBounds = true
+        glassView.autoresizingMask = [.width, .height]
+        addSubview(glassView, positioned: .below, relativeTo: nil)
         updateAppearance(isEditing: false)
 
         searchIcon.contentTintColor = NSColor.white.withAlphaComponent(0.62)
@@ -66,6 +89,13 @@ final class LunchpadSearchField: NSView, NSTextFieldDelegate {
         clearButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(clearButton)
 
+        moreButton.isBordered = false
+        moreButton.contentTintColor = NSColor.white.withAlphaComponent(0.6)
+        moreButton.target = self
+        moreButton.action = #selector(showMore)
+        moreButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(moreButton)
+
         NSLayoutConstraint.activate([
             searchIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             searchIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -77,10 +107,15 @@ final class LunchpadSearchField: NSView, NSTextFieldDelegate {
             textField.centerYAnchor.constraint(equalTo: centerYAnchor),
             textField.heightAnchor.constraint(equalToConstant: 20),
 
-            clearButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
+            clearButton.trailingAnchor.constraint(equalTo: moreButton.leadingAnchor, constant: -4),
             clearButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             clearButton.widthAnchor.constraint(equalToConstant: 16),
             clearButton.heightAnchor.constraint(equalToConstant: 16),
+
+            moreButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            moreButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            moreButton.widthAnchor.constraint(equalToConstant: 18),
+            moreButton.heightAnchor.constraint(equalToConstant: 18),
         ])
     }
 
@@ -97,6 +132,12 @@ final class LunchpadSearchField: NSView, NSTextFieldDelegate {
                 .font: NSFont.systemFont(ofSize: 14, weight: .regular),
             ]
         )
+        moreButton.image = NSImage(
+            systemSymbolName: "ellipsis.circle",
+            accessibilityDescription: localizer.string("menu.more")
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        )
         clearButton.image = NSImage(
             systemSymbolName: "xmark.circle.fill",
             accessibilityDescription: localizer.string("search.clear.accessibility")
@@ -106,12 +147,16 @@ final class LunchpadSearchField: NSView, NSTextFieldDelegate {
     }
 
     private func updateAppearance(isEditing: Bool) {
-        layer?.backgroundColor = NSColor.black
-            .withAlphaComponent(isEditing ? 0.13 : 0.08)
+        layer?.backgroundColor = NSColor.white
+            .withAlphaComponent(isEditing ? 0.10 : 0.06)
             .cgColor
         layer?.borderColor = NSColor.white
-            .withAlphaComponent(isEditing ? 0.34 : 0.18)
+            .withAlphaComponent(isEditing ? 0.38 : 0.22)
             .cgColor
+    }
+
+    @objc private func showMore() {
+        onMoreButton?(moreButton)
     }
 
     @objc private func clearSearch() {

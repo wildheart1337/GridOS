@@ -24,9 +24,9 @@ private final class SettingsCardView: NSView {
 /// The panes of the settings window, in toolbar order.
 private enum SettingsPane: String, CaseIterable {
     case general
-    case grid
-    case activation
+    case interface
     case applications
+    case advanced
     case about
 
     var identifier: NSToolbarItem.Identifier { NSToolbarItem.Identifier("gridos." + rawValue) }
@@ -34,9 +34,9 @@ private enum SettingsPane: String, CaseIterable {
     var symbolName: String {
         switch self {
         case .general: "gearshape"
-        case .grid: "square.grid.3x3"
-        case .activation: "keyboard"
-        case .applications: "app.badge"
+        case .interface: "paintpalette"
+        case .applications: "square.grid.2x2"
+        case .advanced: "slider.horizontal.3"
         case .about: "info.circle"
         }
     }
@@ -74,6 +74,17 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
     private let gestureLabel = NSTextField(labelWithString: "")
     private let gestureFingerCountLabel = NSTextField(labelWithString: "")
     private let hotCornerLabel = NSTextField(labelWithString: "")
+    private let trackpadLabel = NSTextField(labelWithString: "")
+    private let menuBarIconLabel = NSTextField(labelWithString: "")
+    private let gridLabel = NSTextField(labelWithString: "")
+    private let backgroundTypeLabel = NSTextField(labelWithString: "")
+    private let blurLabel = NSTextField(labelWithString: "")
+    private let glassLabel = NSTextField(labelWithString: "")
+    private let launchHeader = NSTextField(labelWithString: "")
+    private let appearanceHeader = NSTextField(labelWithString: "")
+    private let layoutHeader = NSTextField(labelWithString: "")
+    private let backgroundHeader = NSTextField(labelWithString: "")
+    private let gridTimesLabel = NSTextField(labelWithString: "×")
     private let hiddenAppsLabel = NSTextField(labelWithString: "")
     private let customNamesLabel = NSTextField(labelWithString: "")
     private let appFoldersLabel = NSTextField(labelWithString: "")
@@ -98,6 +109,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
     private let gestureSwitch = NSSwitch()
     private let gestureFingerCountPopup = NSPopUpButton()
     private let hotCornerPopup = NSPopUpButton()
+    private let trackpadPopup = NSPopUpButton()
+    private let menuBarIconSwitch = NSSwitch()
+    private let backgroundTypeControl = NSSegmentedControl()
+    private let blurSwitch = NSSwitch()
+    private let glassSlider = NSSlider(value: 0.5, minValue: 0, maxValue: 1, target: nil, action: nil)
+    private var blurRow: NSView?
+    private var glassRow: NSView?
+    /// The view to hide for each row, which includes the separator above it.
+    private var rowContainers: [ObjectIdentifier: NSView] = [:]
     private let unhideAllButton = NSButton()
     private let resetNamesButton = NSButton()
     private let addFolderButton = NSButton()
@@ -179,6 +199,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         gestureFingerCountLabel.stringValue = localizer.string("settings.gesture-finger-count")
         gestureNote.stringValue = localizer.string("settings.trackpad-gesture.note")
         hotCornerLabel.stringValue = localizer.string("settings.hot-corner")
+        trackpadLabel.stringValue = localizer.string("settings.trackpad-gesture")
+        menuBarIconLabel.stringValue = localizer.string("settings.menu-bar-icon")
+        gridLabel.stringValue = localizer.string("settings.grid")
+        backgroundTypeLabel.stringValue = localizer.string("settings.background.type")
+        blurLabel.stringValue = localizer.string("settings.background.blur")
+        glassLabel.stringValue = localizer.string("settings.background.glass")
+        launchHeader.stringValue = localizer.string("settings.section.launch")
+        appearanceHeader.stringValue = localizer.string("settings.section.appearance")
+        layoutHeader.stringValue = localizer.string("settings.section.layout")
+        backgroundHeader.stringValue = localizer.string("settings.section.background")
+        backgroundTypeControl.segmentCount = 2
+        backgroundTypeControl.setLabel(localizer.string("settings.background.wallpaper"), forSegment: 0)
+        backgroundTypeControl.setLabel(localizer.string("settings.background.glass-effect"), forSegment: 1)
         hiddenAppsLabel.stringValue = localizer.string("settings.hidden-apps")
         customNamesLabel.stringValue = localizer.string("settings.custom-names")
         appFoldersLabel.stringValue = localizer.string("settings.app-folders")
@@ -200,6 +233,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         refreshShortcutState()
         refreshLoginItemState()
         gestureSwitch.state = preferences.gestureEnabled ? .on : .off
+        rebuildTrackpadPopup()
+        menuBarIconSwitch.state = preferences.showMenuBarIcon ? .on : .off
+        backgroundTypeControl.selectedSegment = preferences.backgroundStyle == .wallpaper ? 0 : 1
+        blurSwitch.state = preferences.blurWallpaper ? .on : .off
+        glassSlider.doubleValue = preferences.glassIntensity
+        setRowHidden(blurRow, preferences.backgroundStyle != .wallpaper)
+        setRowHidden(glassRow, preferences.backgroundStyle != .glass)
         spotlightKeySwitch.state = preferences.spotlightKeyOpensGridOS ? .on : .off
         refreshFeedback()
         resizeWindowToFitPane(animated: false)
@@ -312,10 +352,33 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         rowsPopup.action = #selector(gridDimensionChanged(_:))
         hotCornerPopup.target = self
         hotCornerPopup.action = #selector(hotCornerChanged(_:))
-        for popup in [languagePopup, orderPopup, gestureFingerCountPopup, columnsPopup, rowsPopup,
-                      hotCornerPopup] {
+        trackpadPopup.target = self
+        trackpadPopup.action = #selector(trackpadChanged(_:))
+        for popup in [languagePopup, orderPopup, gestureFingerCountPopup, hotCornerPopup,
+                      trackpadPopup] {
             popup.translatesAutoresizingMaskIntoConstraints = false
             popup.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        }
+        for popup in [columnsPopup, rowsPopup] {
+            popup.translatesAutoresizingMaskIntoConstraints = false
+            popup.widthAnchor.constraint(equalToConstant: 64).isActive = true
+        }
+        gridTimesLabel.textColor = .secondaryLabelColor
+        menuBarIconSwitch.target = self
+        menuBarIconSwitch.action = #selector(menuBarIconChanged(_:))
+        backgroundTypeControl.segmentCount = 2
+        backgroundTypeControl.trackingMode = .selectOne
+        backgroundTypeControl.target = self
+        backgroundTypeControl.action = #selector(backgroundTypeChanged(_:))
+        blurSwitch.target = self
+        blurSwitch.action = #selector(blurChanged(_:))
+        glassSlider.target = self
+        glassSlider.action = #selector(glassIntensityChanged(_:))
+        glassSlider.isContinuous = false
+        glassSlider.translatesAutoresizingMaskIntoConstraints = false
+        glassSlider.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        for header in [launchHeader, appearanceHeader, layoutHeader, backgroundHeader] {
+            header.font = .systemFont(ofSize: 13, weight: .semibold)
         }
 
         shortcutRecorder.onCandidate = { [weak self] configuration in
@@ -368,36 +431,40 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         let loginItemControls = horizontalStack([loginItemApprovalButton, loginItemSwitch])
         let folderControls = horizontalStack([clearFoldersButton, addFolderButton])
 
+        let gridControls = horizontalStack([columnsPopup, gridTimesLabel, rowsPopup])
+        let blurRow = row(blurLabel, blurSwitch)
+        let glassRow = row(glassLabel, glassSlider)
+        self.blurRow = blurRow
+        self.glassRow = glassRow
+
         paneViews[.general] = makePane([
-            card([
-                row(languageLabel, languagePopup),
-                row(orderLabel, orderPopup),
-            ]),
+            header(launchHeader),
             card([
                 row(loginItemLabel, loginItemControls),
-                row(dockLabel, addToDockButton),
-            ]),
-        ])
-        paneViews[.grid] = makePane([
-            card([
-                row(columnsLabel, columnsPopup),
-                row(rowsLabel, rowsPopup),
-            ]),
-            note(gridNote),
-        ])
-        paneViews[.activation] = makePane([
-            card([
                 row(shortcutLabel, shortcutControls),
                 row(spotlightKeyLabel, spotlightKeySwitch),
+                row(trackpadLabel, trackpadPopup),
+                row(hotCornerLabel, hotCornerPopup),
             ]),
             note(spotlightKeyNote),
+            header(appearanceHeader),
             card([
-                row(gestureLabel, gestureSwitch),
-                row(gestureFingerCountLabel, gestureFingerCountPopup),
+                row(menuBarIconLabel, menuBarIconSwitch),
+                row(languageLabel, languagePopup),
             ]),
-            note(gestureNote),
+        ])
+        paneViews[.interface] = makePane([
+            header(layoutHeader),
             card([
-                row(hotCornerLabel, hotCornerPopup),
+                row(orderLabel, orderPopup),
+                row(gridLabel, gridControls),
+            ]),
+            note(gridNote),
+            header(backgroundHeader),
+            card([
+                row(backgroundTypeLabel, backgroundTypeControl),
+                blurRow,
+                glassRow,
             ]),
         ])
         paneViews[.applications] = makePane([
@@ -407,6 +474,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
                 row(appFoldersLabel, folderControls),
             ]),
             note(appFoldersList),
+        ])
+        paneViews[.advanced] = makePane([
+            card([
+                row(dockLabel, addToDockButton),
+            ]),
+            note(gestureNote),
         ])
         paneViews[.about] = makeAboutPane()
 
@@ -476,16 +549,31 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         stack.spacing = 0
         stack.translatesAutoresizingMaskIntoConstraints = false
         for (index, row) in rows.enumerated() {
-            if index > 0 {
-                let separator = NSBox()
-                separator.boxType = .separator
-                separator.translatesAutoresizingMaskIntoConstraints = false
-                stack.addArrangedSubview(separator)
-                separator.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 14).isActive = true
-                separator.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -14).isActive = true
+            guard index > 0 else {
+                stack.addArrangedSubview(row)
+                row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+                continue
             }
-            stack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            // Each later row carries the separator above it, so hiding the row hides both.
+            let separator = NSBox()
+            separator.boxType = .separator
+            separator.translatesAutoresizingMaskIntoConstraints = false
+            let container = NSView()
+            container.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(separator)
+            container.addSubview(row)
+            NSLayoutConstraint.activate([
+                separator.topAnchor.constraint(equalTo: container.topAnchor),
+                separator.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
+                separator.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
+                row.topAnchor.constraint(equalTo: separator.bottomAnchor),
+                row.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                row.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                row.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            ])
+            stack.addArrangedSubview(container)
+            container.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            rowContainers[ObjectIdentifier(row)] = container
         }
         card.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -513,6 +601,26 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         row.translatesAutoresizingMaskIntoConstraints = false
         row.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
         return row
+    }
+
+    private func setRowHidden(_ row: NSView?, _ hidden: Bool) {
+        guard let row else { return }
+        (rowContainers[ObjectIdentifier(row)] ?? row).isHidden = hidden
+    }
+
+    /// A section title above a card.
+    private func header(_ label: NSTextField) -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+        ])
+        return container
     }
 
     private func horizontalStack(_ views: [NSView]) -> NSStackView {
@@ -559,6 +667,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
             (.manual, localizer.string("settings.application-order.manual")),
             (.name, localizer.string("settings.application-order.name")),
             (.creationDate, localizer.string("settings.application-order.creation-date")),
+            (.lastOpened, localizer.string("settings.application-order.last-opened")),
             (.modificationDate, localizer.string("settings.application-order.modification-date")),
         ]
         for (index, value) in values.enumerated() {
@@ -745,6 +854,54 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
     @objc private func clearApplicationFolders(_ sender: Any?) {
         preferences.additionalApplicationFolders = []
         refreshApplicationCustomizationState()
+    }
+
+    private func rebuildTrackpadPopup() {
+        trackpadPopup.removeAllItems()
+        let values: [(String, String)] = [
+            ("off", localizer.string("settings.trackpad.off")),
+            ("3", localizer.string("settings.trackpad.pinch-three")),
+            ("4", localizer.string("settings.trackpad.pinch-four")),
+        ]
+        for (index, value) in values.enumerated() {
+            trackpadPopup.addItem(withTitle: value.1)
+            trackpadPopup.item(at: index)?.representedObject = value.0
+        }
+        let current = preferences.gestureEnabled
+            ? String(preferences.gestureFingerCount.rawValue)
+            : "off"
+        trackpadPopup.selectItem(at: values.firstIndex { $0.0 == current } ?? 2)
+    }
+
+    @objc private func trackpadChanged(_ sender: NSPopUpButton) {
+        guard let value = sender.selectedItem?.representedObject as? String else { return }
+        if value == "off" {
+            preferences.gestureEnabled = false
+        } else {
+            if let count = Int(value), let fingers = GestureFingerCount(rawValue: count) {
+                preferences.gestureFingerCount = fingers
+            }
+            preferences.gestureEnabled = true
+        }
+        transientFeedback = nil
+        refreshFeedback()
+    }
+
+    @objc private func menuBarIconChanged(_ sender: NSSwitch) {
+        preferences.showMenuBarIcon = sender.state == .on
+    }
+
+    @objc private func backgroundTypeChanged(_ sender: NSSegmentedControl) {
+        preferences.backgroundStyle = sender.selectedSegment == 0 ? .wallpaper : .glass
+        resizeWindowToFitPane(animated: true)
+    }
+
+    @objc private func blurChanged(_ sender: NSSwitch) {
+        preferences.blurWallpaper = sender.state == .on
+    }
+
+    @objc private func glassIntensityChanged(_ sender: NSSlider) {
+        preferences.glassIntensity = sender.doubleValue
     }
 
     @objc private func spotlightKeyChanged(_ sender: NSSwitch) {
