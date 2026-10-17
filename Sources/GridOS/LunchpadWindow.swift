@@ -33,7 +33,7 @@ final class LunchpadBackdropWindow: NSWindow {
         )
 
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 2)
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
@@ -45,38 +45,65 @@ final class LunchpadBackdropWindow: NSWindow {
         effectView.blendingMode = .behindWindow
         effectView.state = .active
         effectView.appearance = NSAppearance(named: .darkAqua)
-        contentView = effectView
+        // The effect view, wallpaper, and tint are siblings, so the glass mode can hide the
+        // standard material while keeping the tint.
+        let container = NSView()
+        container.wantsLayer = true
+        contentView = container
+        effectView.autoresizingMask = [.width, .height]
+        container.addSubview(effectView)
 
         wallpaperView.imageScaling = .scaleAxesIndependently
         wallpaperView.autoresizingMask = [.width, .height]
         wallpaperView.isHidden = true
-        effectView.addSubview(wallpaperView)
+        container.addSubview(wallpaperView)
 
         tintView.wantsLayer = true
         tintView.autoresizingMask = [.width, .height]
-        effectView.addSubview(tintView)
+        container.addSubview(tintView)
     }
 
-    /// Applies the background style for the display about to be covered.
+    /// Applies the background style for the display about to be covered. Call after the
+    /// window is on screen: the glass blur is attached to the window's server-side surface.
     func apply(_ configuration: BackdropConfiguration, for screen: NSScreen) {
-        wallpaperView.frame = effectView.bounds
-        tintView.frame = effectView.bounds
+        let bounds = contentView?.bounds ?? .zero
+        effectView.frame = bounds
+        wallpaperView.frame = bounds
+        tintView.frame = bounds
         switch configuration.style {
         case .wallpaper:
+            WindowBlur.setRadius(0, for: self)
+            effectView.state = .active
+            effectView.alphaValue = 1
             if let image = WallpaperRenderer.image(for: screen, blurred: configuration.blurWallpaper) {
                 wallpaperView.image = image
                 wallpaperView.isHidden = false
                 tintView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.22).cgColor
             } else {
-                // A live or unreadable wallpaper falls back to glass.
+                // A live or unreadable wallpaper falls back to the standard material.
                 wallpaperView.isHidden = true
                 tintView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.3).cgColor
             }
         case .glass:
             wallpaperView.isHidden = true
-            tintView.layer?.backgroundColor = NSColor.black
-                .withAlphaComponent(0.05 + 0.55 * configuration.glassIntensity)
-                .cgColor
+            let intensity = min(1, max(0, configuration.glassIntensity))
+            // Left: nearly clear glass over the windows and desktop. Right: a strong blur.
+            let radius = Int((2 + 58 * intensity).rounded())
+            if WindowBlur.setRadius(radius, for: self) {
+                effectView.state = .inactive
+                effectView.alphaValue = 0
+                tintView.alphaValue = 1
+                tintView.layer?.backgroundColor = NSColor.black
+                    .withAlphaComponent(0.04 + 0.30 * intensity)
+                    .cgColor
+            } else {
+                // Without an adjustable radius, fade the standard blur in instead.
+                effectView.state = .active
+                effectView.alphaValue = 0.15 + 0.85 * intensity
+                tintView.layer?.backgroundColor = NSColor.black
+                    .withAlphaComponent(0.04 + 0.25 * intensity)
+                    .cgColor
+            }
         }
     }
 
@@ -137,7 +164,7 @@ final class MenuBarDockCornerWindow: NSWindow {
         )
 
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 1)
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
@@ -179,6 +206,8 @@ final class LunchpadWindow: NSWindow {
     /// Builds the launcher menu shown for empty space and the search field's "…" button.
     var backgroundMenuProvider: (() -> NSMenu?)?
     private(set) var isAnimatingClose = false
+    /// When the launcher was last presented; occlusion right after showing is ignored.
+    private var lastPresentedAt: TimeInterval = 0
     private var presentationGeneration = 0
     /// The display hosting the current presentation, used to follow display reconfigurations.
     private var presentedDisplayID: CGDirectDisplayID?
@@ -209,7 +238,7 @@ final class LunchpadWindow: NSWindow {
         // float above it (such as Dock previews) stay visible and usable. A separate cover
         // window hides the menu bar.
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 1)
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
 
         // The backdrop is a separate full-screen window below this one.
         backgroundColor = .clear
@@ -227,6 +256,18 @@ final class LunchpadWindow: NSWindow {
         rootView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.01).cgColor
         // Clicks on the hidden menu bar must not open menus underneath the cover.
         menuBarCoverWindow.ignoresMouseEvents = false
+
+        // Mission Control hides transient windows. Close instead of reappearing afterwards,
+        // which is what classic Launchpad did.
+        _ = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: self,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.occlusionStateChanged()
+            }
+        }
 
         menuBarGradientView.translatesAutoresizingMaskIntoConstraints = false
         gridView.translatesAutoresizingMaskIntoConstraints = false
@@ -297,6 +338,7 @@ final class LunchpadWindow: NSWindow {
         )
         gridView.prepareForPresentation(restoredRootPage: restoredRootPage)
         isAnimatingClose = false
+        lastPresentedAt = ProcessInfo.processInfo.systemUptime
         presentationGeneration &+= 1
         let generation = presentationGeneration
         alphaValue = 1
@@ -306,6 +348,10 @@ final class LunchpadWindow: NSWindow {
         menuBarGradientView.alphaValue = 0
         gridView.alphaValue = 0
         backdropWindow.orderFrontRegardless()
+        if let screen {
+            // The adjustable glass blur attaches to the window once it is on screen.
+            backdropWindow.apply(backdropConfiguration, for: screen)
+        }
         if !menuBarDockCornerWindow.frame.isEmpty {
             menuBarDockCornerWindow.orderFrontRegardless()
         }
@@ -433,6 +479,14 @@ final class LunchpadWindow: NSWindow {
 
     func refreshLocalizedContent() {
         gridView.refreshLocalizedContent()
+    }
+
+    private func occlusionStateChanged() {
+        guard isVisible, !isAnimatingClose, !occlusionState.contains(.visible),
+              ProcessInfo.processInfo.systemUptime - lastPresentedAt > 0.6 else {
+            return
+        }
+        close()
     }
 
     override func close() {

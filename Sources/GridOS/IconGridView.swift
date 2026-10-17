@@ -995,7 +995,11 @@ final class IconGridView: NSView {
         if !folders.isEmpty {
             submenu.addItem(.separator())
         }
-        add(localizer.string("folder.new"), .newFolder)
+        add(localizer.string("app.move-to.new-folder"), .newFolder)
+        submenu.items.last?.image = NSImage(
+            systemSymbolName: "plus",
+            accessibilityDescription: nil
+        )
         return submenu
     }
 
